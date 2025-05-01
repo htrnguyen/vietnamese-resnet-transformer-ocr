@@ -81,7 +81,7 @@ def greedy_decode(model, image_tensor):
             [[char2idx[SOS_TOKEN]]], device=DEVICE
         )  # Use dynamic SOS token
 
-        # Initialize attention maps list
+        # Initialize attention maps list (empty by default)
         attention_maps = []
 
         for _ in range(MAX_LEN):
@@ -92,15 +92,9 @@ def greedy_decode(model, image_tensor):
                 tgt_mask=model.generate_square_subsequent_mask(ys.size(1)).to(DEVICE),
             )
 
-            # Store attention maps when available
-            if hasattr(model.decoder.transformer_decoder.layers[-1], "self_attn"):
-                # Get attention weights from the last decoder layer
-                # This is implementation dependent and might need adjustment
-                attn_weights = model.decoder.transformer_decoder.layers[
-                    -1
-                ].self_attn.attn_weights
-                if attn_weights is not None:
-                    attention_maps.append(attn_weights.detach().cpu())
+            # Note: In standard PyTorch implementation, attention weights are not accessible
+            # directly from MultiheadAttention. We'll skip this part but keep the structure
+            # for possible future modifications.
 
             prob = out[:, -1, :]
             _, next_word = torch.max(prob, dim=1)
