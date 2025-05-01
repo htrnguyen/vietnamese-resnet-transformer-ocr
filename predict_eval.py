@@ -210,53 +210,102 @@ def evaluate_dataset(image_dir, label_dir, num_samples=None, save_prefix="test")
                 if len(parts) < 9 or parts[8] == "###":
                     continue
 
-                polygon = list(map(int, parts[:8]))
-                text_gt = parts[8]
+                try:
+                    polygon = list(map(int, parts[:8]))
+                    text_gt = parts[8]
 
-                x_coords, y_coords = polygon[::2], polygon[1::2]
-                x1, y1, x2, y2 = (
-                    min(x_coords),
-                    min(y_coords),
-                    max(x_coords),
-                    max(y_coords),
-                )
-
-                image_tensor = preprocess_image(img_path, (x1, y1, x2, y2))
-                pred_text, attention_maps = greedy_decode(model, image_tensor)
-
-                # Calculate metrics
-                metrics = calculate_metrics(text_gt, pred_text)
-                for key in metrics:
-                    all_metrics[key] += metrics[key]
-                all_metrics["total"] += 1
-
-                # Store result
-                result = {
-                    "img_id": img_id,
-                    "gt": text_gt,
-                    "pred": pred_text,
-                    "metrics": metrics,
-                }
-                results.append(result)
-
-                # Visualize and save sample images
-                if SAVE_RESULTS and (len(results) % 10 == 0 or len(results) <= 10):
-                    img_np = cv2.imread(img_path)
-                    img_crop = img_np[y1:y2, x1:x2]
-                    img_rgb = cv2.cvtColor(img_crop, cv2.COLOR_BGR2RGB)
-
-                    # Get last attention map if available
-                    attention_map = None
-                    if attention_maps and len(attention_maps) > 0:
-                        attention_map = attention_maps[-1]  # Last timestep
-
-                    save_path = os.path.join(RESULTS_DIR, f"{save_prefix}_{img_id}.png")
-                    visualize_attention(
-                        img_rgb,
-                        f"GT: {text_gt} | Pred: {pred_text}",
-                        attention_map,
-                        save_path,
+                    x_coords, y_coords = polygon[::2], polygon[1::2]
+                    x1, y1, x2, y2 = (
+                        min(x_coords),
+                        min(y_coords),
+                        max(x_coords),
+                        max(y_coords),
                     )
+
+                    # Kiểm tra tọa độ là hợp lệ
+                    if x1 >= x2 or y1 >= y2:
+                        print(
+                            f"Warning: Invalid coordinates for {img_file}: {x1},{y1},{x2},{y2}"
+                        )
+                        continue
+
+                    image_tensor = preprocess_image(img_path, (x1, y1, x2, y2))
+                    pred_text, attention_maps = greedy_decode(model, image_tensor)
+
+                    # Calculate metrics
+                    metrics = calculate_metrics(text_gt, pred_text)
+                    for key in metrics:
+                        all_metrics[key] += metrics[key]
+                    all_metrics["total"] += 1
+
+                    # Store result
+                    result = {
+                        "img_id": img_id,
+                        "gt": text_gt,
+                        "pred": pred_text,
+                        "metrics": metrics,
+                    }
+                    results.append(result)
+
+                    # Visualize and save sample images
+                    if SAVE_RESULTS and (len(results) % 10 == 0 or len(results) <= 10):
+                        img_np = cv2.imread(img_path)
+
+                        # Kiểm tra xem đọc ảnh có thành công không
+                        if img_np is None:
+                            print(f"Warning: Could not read image {img_path}")
+                            continue
+
+                        # Đảm bảo tọa độ nằm trong phạm vi ảnh
+                        height, width = img_np.shape[:2]
+                        x1, y1 = max(0, x1), max(0, y1)
+                        x2, y2 = min(width, x2), min(height, y2)
+
+                        # Kiểm tra kích thước crop phải > 0
+                        if x1 >= x2 or y1 >= y2:
+                            print(
+                                f"Warning: Invalid crop region for {img_file}: {x1},{y1},{x2},{y2}"
+                            )
+                            continue
+
+                        img_crop = img_np[y1:y2, x1:x2]
+
+                        # Kiểm tra xem crop có thành công không
+                        if img_crop.size == 0:
+                            print(
+                                f"Warning: Empty crop for {img_file} at {x1},{y1},{x2},{y2}"
+                            )
+                            continue
+
+                        img_rgb = cv2.cvtColor(img_crop, cv2.COLOR_BGR2RGB)
+
+                        # Get last attention map if available
+                        attention_map = None
+                        if attention_maps and len(attention_maps) > 0:
+                            attention_map = attention_maps[-1]  # Last timestep
+
+                        save_path = os.path.join(
+                            RESULTS_DIR, f"{save_prefix}_{img_id}.png"
+                        )
+                        try:
+                            visualize_attention(
+                                img_rgb,
+                                f"GT: {text_gt} | Pred: {pred_text}",
+                                attention_map,
+                                save_path,
+                            )
+                        except Exception as e:
+                            print(
+                                f"Warning: Failed to visualize results for {img_file}: {e}"
+                            )
+                except Exception as e:
+                    print(f"Error processing {img_file}, line: {line.strip()}: {e}")
+                    continue
+
+    # Kiểm tra nếu không có kết quả nào
+    if all_metrics["total"] == 0:
+        print("No valid samples were evaluated.")
+        return [], {}
 
     # Calculate average metrics
     avg_metrics = {
