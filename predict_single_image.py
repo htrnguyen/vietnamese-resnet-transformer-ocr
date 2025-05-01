@@ -1,4 +1,5 @@
 import os
+import sys
 
 import cv2
 import matplotlib.pyplot as plt
@@ -96,6 +97,11 @@ def get_label_from_image_id(img_id):
 # --- Hàm dự đoán ảnh đơn ---
 def predict_image(img_path):
     """Predict text from an image and compare with ground truth if available"""
+    # Kiểm tra đường dẫn
+    if not os.path.exists(img_path):
+        print(f"Lỗi: Không tìm thấy file {img_path}")
+        return
+
     # Get image ID from filename
     img_filename = os.path.basename(img_path)
     img_id = img_filename.replace("im", "").replace(".jpg", "")
@@ -201,13 +207,21 @@ def predict_image(img_path):
 
 # --- Main ---
 if __name__ == "__main__":
-    while True:
-        img_path = input("\nNhập đường dẫn đến ảnh (hoặc nhập 'q' để thoát): ")
-        if img_path.lower() == "q":
-            break
-
-        if not os.path.exists(img_path):
-            print(f"Lỗi: Không tìm thấy file {img_path}")
-            continue
-
+    # Kiểm tra xem có tham số dòng lệnh không
+    if len(sys.argv) > 1:
+        # Sử dụng tham số dòng lệnh làm đường dẫn ảnh
+        img_path = sys.argv[1]
+        print(f"Processing image: {img_path}")
         predict_image(img_path)
+    else:
+        # Chế độ tương tác nếu không có tham số dòng lệnh
+        while True:
+            img_path = input("\nNhập đường dẫn đến ảnh (hoặc nhập 'q' để thoát): ")
+            if img_path.lower() == "q":
+                break
+
+            if not os.path.exists(img_path):
+                print(f"Lỗi: Không tìm thấy file {img_path}")
+                continue
+
+            predict_image(img_path)
