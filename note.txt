@@ -1,0 +1,3 @@
+https://medium.com/geekculture/scene-text-recognition-using-resnet-and-transformer-c1f2dd0e69ae
+https://scale-ml.github.io/docs/OCR/
+https://github.com/fengxinjie/Transformer-OCR
