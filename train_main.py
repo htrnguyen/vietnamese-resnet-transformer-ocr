@@ -9,8 +9,8 @@ from dataset_polygon import OCRDataset, char2idx, idx2char
 import torchvision.transforms as transforms
 
 # --- Hyperparameters ---
-BATCH_SIZE = 16
-EPOCHS = 30
+BATCH_SIZE = 64
+EPOCHS = 5
 LEARNING_RATE = 1e-4
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 VOCAB_SIZE = len(char2idx)
