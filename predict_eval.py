@@ -24,6 +24,17 @@ MAX_LEN = 36
 SAVE_RESULTS = True
 RESULTS_DIR = "results"
 
+# Xác định token SOS chính xác từ char2idx để đảm bảo nhất quán
+SOS_TOKEN = None
+for token in char2idx.keys():
+    if "SOS" in token:
+        SOS_TOKEN = token
+        print(f"Found SOS token: '{SOS_TOKEN}'")
+        break
+
+if SOS_TOKEN is None:
+    raise ValueError("SOS token not found in vocabulary!")
+
 if SAVE_RESULTS and not os.path.exists(RESULTS_DIR):
     os.makedirs(RESULTS_DIR)
 
@@ -55,7 +66,7 @@ def decode_sequence(indices):
         ch = idx2char.get(idx, "")
         if ch == "<EOS>":
             break
-        if ch not in ("<PAD>", "< SOS >"):
+        if ch not in ("<PAD>", SOS_TOKEN):
             chars.append(ch)
     return "".join(chars)
 
@@ -66,7 +77,9 @@ def greedy_decode(model, image_tensor):
     with torch.no_grad():
         image_tensor = image_tensor.to(DEVICE)
         memory = model.encoder(image_tensor)
-        ys = torch.tensor([[char2idx["< SOS >"]]], device=DEVICE)
+        ys = torch.tensor(
+            [[char2idx[SOS_TOKEN]]], device=DEVICE
+        )  # Use dynamic SOS token
 
         # Initialize attention maps list
         attention_maps = []
