@@ -26,6 +26,7 @@ UNSEEN_IMAGE_DIR = os.path.join("vietnamese", "unseen_test_images")
 LABEL_DIR = os.path.join("vietnamese", "labels")
 MAX_LEN = 36
 SAVE_RESULTS = True
+SAVE_SAMPLE_IMAGES = False  # Không lưu ảnh mẫu test nữa
 RESULTS_DIR = "results"
 EVAL_CHARTS_DIR = os.path.join(RESULTS_DIR, "evaluation_charts")
 
@@ -275,54 +276,6 @@ def evaluate_dataset(image_dir, label_dir, num_samples=None, save_prefix="test")
                     }
                     results.append(result)
 
-                    # Visualize and save sample images
-                    img_np = cv2.imread(img_path)
-
-                    # Kiểm tra xem đọc ảnh có thành công không
-                    if img_np is None:
-                        print(f"Warning: Could not read image {img_path}")
-                        continue
-
-                    # Đảm bảo tọa độ nằm trong phạm vi ảnh
-                    height, width = img_np.shape[:2]
-                    x1, y1 = max(0, x1), max(0, y1)
-                    x2, y2 = min(width, x2), min(height, y2)
-
-                    # Kiểm tra kích thước crop phải > 0
-                    if x1 >= x2 or y1 >= y2:
-                        print(
-                            f"Warning: Invalid crop region for {img_file}: {x1},{y1},{x2},{y2}"
-                        )
-                        continue
-
-                    img_crop = img_np[y1:y2, x1:x2]
-
-                    # Kiểm tra xem crop có thành công không
-                    if img_crop.size == 0:
-                        print(
-                            f"Warning: Empty crop for {img_file} at {x1},{y1},{x2},{y2}"
-                        )
-                        continue
-
-                    img_rgb = cv2.cvtColor(img_crop, cv2.COLOR_BGR2RGB)
-
-                    # Get last attention map if available
-                    attention_map = None
-                    if attention_maps and len(attention_maps) > 0:
-                        attention_map = attention_maps[-1]  # Last timestep
-
-                    save_path = os.path.join(RESULTS_DIR, f"{save_prefix}_{img_id}.png")
-                    try:
-                        visualize_attention(
-                            img_rgb,
-                            f"GT: {text_gt} | Pred: {pred_text}",
-                            attention_map,
-                            save_path,
-                        )
-                    except Exception as e:
-                        print(
-                            f"Warning: Failed to visualize results for {img_file}: {e}"
-                        )
                 except Exception as e:
                     print(f"Error processing {img_file}, line: {line.strip()}: {e}")
                     continue
