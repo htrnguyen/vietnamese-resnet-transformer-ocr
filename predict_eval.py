@@ -1,12 +1,16 @@
 import os
+from collections import Counter
 
 import cv2
 import Levenshtein
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import seaborn as sns
 import torch
 from PIL import Image
+from sklearn.metrics import confusion_matrix
 from torchvision import transforms
 from tqdm import tqdm
 
@@ -23,6 +27,7 @@ LABEL_DIR = os.path.join("vietnamese", "labels")
 MAX_LEN = 36
 SAVE_RESULTS = True
 RESULTS_DIR = "results"
+EVAL_CHARTS_DIR = os.path.join(RESULTS_DIR, "evaluation_charts")
 
 # Xác định token SOS chính xác từ char2idx để đảm bảo nhất quán
 SOS_TOKEN = None
@@ -37,6 +42,9 @@ if SOS_TOKEN is None:
 
 if SAVE_RESULTS and not os.path.exists(RESULTS_DIR):
     os.makedirs(RESULTS_DIR)
+
+if SAVE_RESULTS and not os.path.exists(EVAL_CHARTS_DIR):
+    os.makedirs(EVAL_CHARTS_DIR)
 
 
 # --- Utility functions ---
@@ -195,6 +203,10 @@ def evaluate_dataset(image_dir, label_dir, num_samples=None, save_prefix="test")
         "char_accuracy": 0,
     }
 
+    # For confusion matrix
+    all_gt_chars = []
+    all_pred_chars = []
+
     for img_file in tqdm(image_files):
         img_id = int(img_file.replace("im", "").replace(".jpg", ""))
         img_path = os.path.join(image_dir, img_file)
@@ -238,6 +250,22 @@ def evaluate_dataset(image_dir, label_dir, num_samples=None, save_prefix="test")
                         all_metrics[key] += metrics[key]
                     all_metrics["total"] += 1
 
+                    # Collect characters for confusion matrix
+                    min_len = min(len(text_gt), len(pred_text))
+                    for i in range(min_len):
+                        all_gt_chars.append(text_gt[i])
+                        all_pred_chars.append(pred_text[i])
+
+                    # Add extra characters (either gt or pred may be longer)
+                    if len(text_gt) > len(pred_text):
+                        for i in range(min_len, len(text_gt)):
+                            all_gt_chars.append(text_gt[i])
+                            all_pred_chars.append("")  # Represents deletion
+                    elif len(pred_text) > len(text_gt):
+                        for i in range(min_len, len(pred_text)):
+                            all_gt_chars.append("")  # Represents insertion
+                            all_pred_chars.append(pred_text[i])
+
                     # Store result
                     result = {
                         "img_id": img_id,
@@ -248,56 +276,53 @@ def evaluate_dataset(image_dir, label_dir, num_samples=None, save_prefix="test")
                     results.append(result)
 
                     # Visualize and save sample images
-                    if SAVE_RESULTS and (len(results) % 10 == 0 or len(results) <= 10):
-                        img_np = cv2.imread(img_path)
+                    img_np = cv2.imread(img_path)
 
-                        # Kiểm tra xem đọc ảnh có thành công không
-                        if img_np is None:
-                            print(f"Warning: Could not read image {img_path}")
-                            continue
+                    # Kiểm tra xem đọc ảnh có thành công không
+                    if img_np is None:
+                        print(f"Warning: Could not read image {img_path}")
+                        continue
 
-                        # Đảm bảo tọa độ nằm trong phạm vi ảnh
-                        height, width = img_np.shape[:2]
-                        x1, y1 = max(0, x1), max(0, y1)
-                        x2, y2 = min(width, x2), min(height, y2)
+                    # Đảm bảo tọa độ nằm trong phạm vi ảnh
+                    height, width = img_np.shape[:2]
+                    x1, y1 = max(0, x1), max(0, y1)
+                    x2, y2 = min(width, x2), min(height, y2)
 
-                        # Kiểm tra kích thước crop phải > 0
-                        if x1 >= x2 or y1 >= y2:
-                            print(
-                                f"Warning: Invalid crop region for {img_file}: {x1},{y1},{x2},{y2}"
-                            )
-                            continue
-
-                        img_crop = img_np[y1:y2, x1:x2]
-
-                        # Kiểm tra xem crop có thành công không
-                        if img_crop.size == 0:
-                            print(
-                                f"Warning: Empty crop for {img_file} at {x1},{y1},{x2},{y2}"
-                            )
-                            continue
-
-                        img_rgb = cv2.cvtColor(img_crop, cv2.COLOR_BGR2RGB)
-
-                        # Get last attention map if available
-                        attention_map = None
-                        if attention_maps and len(attention_maps) > 0:
-                            attention_map = attention_maps[-1]  # Last timestep
-
-                        save_path = os.path.join(
-                            RESULTS_DIR, f"{save_prefix}_{img_id}.png"
+                    # Kiểm tra kích thước crop phải > 0
+                    if x1 >= x2 or y1 >= y2:
+                        print(
+                            f"Warning: Invalid crop region for {img_file}: {x1},{y1},{x2},{y2}"
                         )
-                        try:
-                            visualize_attention(
-                                img_rgb,
-                                f"GT: {text_gt} | Pred: {pred_text}",
-                                attention_map,
-                                save_path,
-                            )
-                        except Exception as e:
-                            print(
-                                f"Warning: Failed to visualize results for {img_file}: {e}"
-                            )
+                        continue
+
+                    img_crop = img_np[y1:y2, x1:x2]
+
+                    # Kiểm tra xem crop có thành công không
+                    if img_crop.size == 0:
+                        print(
+                            f"Warning: Empty crop for {img_file} at {x1},{y1},{x2},{y2}"
+                        )
+                        continue
+
+                    img_rgb = cv2.cvtColor(img_crop, cv2.COLOR_BGR2RGB)
+
+                    # Get last attention map if available
+                    attention_map = None
+                    if attention_maps and len(attention_maps) > 0:
+                        attention_map = attention_maps[-1]  # Last timestep
+
+                    save_path = os.path.join(RESULTS_DIR, f"{save_prefix}_{img_id}.png")
+                    try:
+                        visualize_attention(
+                            img_rgb,
+                            f"GT: {text_gt} | Pred: {pred_text}",
+                            attention_map,
+                            save_path,
+                        )
+                    except Exception as e:
+                        print(
+                            f"Warning: Failed to visualize results for {img_file}: {e}"
+                        )
                 except Exception as e:
                     print(f"Error processing {img_file}, line: {line.strip()}: {e}")
                     continue
@@ -305,7 +330,7 @@ def evaluate_dataset(image_dir, label_dir, num_samples=None, save_prefix="test")
     # Kiểm tra nếu không có kết quả nào
     if all_metrics["total"] == 0:
         print("No valid samples were evaluated.")
-        return [], {}
+        return [], {}, [], []
 
     # Calculate average metrics
     avg_metrics = {
@@ -316,25 +341,197 @@ def evaluate_dataset(image_dir, label_dir, num_samples=None, save_prefix="test")
     print("\n===== Evaluation Summary =====")
     print(f"Total samples evaluated: {all_metrics['total']}")
     print(f"Average Edit Distance: {avg_metrics['edit_distance']:.4f}")
-    print(f"Average Character Error Rate (CER): {avg_metrics['cer']:.4f}")
+    print(f"Character Error Rate (CER): {avg_metrics['cer']:.4f}")
     print(f"Word Accuracy: {avg_metrics['word_accuracy']:.4f}")
     print(f"Character Accuracy: {avg_metrics['char_accuracy']:.4f}")
     print("=============================\n")
 
-    return results, avg_metrics
+    # Create and save detailed metrics visualization
+    if SAVE_RESULTS:
+        create_metrics_visualization(results, save_prefix)
+
+    # Create character error visualization
+    if SAVE_RESULTS and len(all_gt_chars) > 0:
+        create_character_error_visualization(all_gt_chars, all_pred_chars, save_prefix)
+
+    return results, avg_metrics, all_gt_chars, all_pred_chars
+
+
+def create_metrics_visualization(results, save_prefix):
+    """Create and save detailed metrics visualization"""
+    # Extract per-sample metrics
+    sample_metrics = {
+        "cer": [r["metrics"]["cer"] for r in results],
+        "edit_distance": [r["metrics"]["edit_distance"] for r in results],
+        "word_accuracy": [r["metrics"]["word_accuracy"] for r in results],
+        "char_accuracy": [r["metrics"]["char_accuracy"] for r in results],
+        "gt_length": [len(r["gt"]) for r in results],
+    }
+
+    # Create a figure with 2x2 subplots
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+
+    # Plot CER distribution
+    axes[0, 0].hist(sample_metrics["cer"], bins=20, color="skyblue", edgecolor="black")
+    axes[0, 0].set_title("Character Error Rate Distribution")
+    axes[0, 0].set_xlabel("CER")
+    axes[0, 0].set_ylabel("Number of samples")
+
+    # Plot edit distance vs text length
+    axes[0, 1].scatter(
+        sample_metrics["gt_length"], sample_metrics["edit_distance"], alpha=0.6
+    )
+    axes[0, 1].set_title("Edit Distance vs. Text Length")
+    axes[0, 1].set_xlabel("Ground Truth Length")
+    axes[0, 1].set_ylabel("Edit Distance")
+
+    # Plot Character Accuracy distribution
+    axes[1, 0].hist(
+        sample_metrics["char_accuracy"], bins=20, color="lightgreen", edgecolor="black"
+    )
+    axes[1, 0].set_title("Character Accuracy Distribution")
+    axes[1, 0].set_xlabel("Character Accuracy")
+    axes[1, 0].set_ylabel("Number of samples")
+
+    # Plot Word Accuracy distribution
+    axes[1, 1].hist(
+        sample_metrics["word_accuracy"], bins=3, color="coral", edgecolor="black"
+    )
+    axes[1, 1].set_title("Word Accuracy Distribution")
+    axes[1, 1].set_xlabel("Word Accuracy")
+    axes[1, 1].set_ylabel("Number of samples")
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(EVAL_CHARTS_DIR, f"{save_prefix}_metrics_detailed.png"))
+    plt.close()
+
+
+def create_character_error_visualization(gt_chars, pred_chars, save_prefix):
+    """Create and save character error visualizations"""
+
+    # Count character occurrences
+    gt_counter = Counter(gt_chars)
+    pred_counter = Counter(pred_chars)
+
+    # Get unique characters from both gt and pred
+    all_chars = sorted(list(set(gt_chars + pred_chars)))
+
+    # Filter out empty string if present
+    if "" in all_chars:
+        all_chars.remove("")
+
+    # If too many characters, limit to top 30
+    if len(all_chars) > 30:
+        # Get top characters by frequency
+        top_chars_dict = {
+            char: gt_counter.get(char, 0) + pred_counter.get(char, 0)
+            for char in all_chars
+        }
+        all_chars = [
+            char
+            for char, _ in sorted(
+                top_chars_dict.items(), key=lambda x: x[1], reverse=True
+            )[:30]
+        ]
+
+    # Create confusion matrix for character prediction
+    cm = confusion_matrix(
+        [c if c in all_chars else "OTHER" for c in gt_chars],
+        [c if c in all_chars else "OTHER" for c in pred_chars],
+        labels=all_chars + ["OTHER"],
+    )
+
+    # Normalize by row (ground truth)
+    cm_norm = cm.astype("float") / cm.sum(axis=1)[:, np.newaxis]
+    cm_norm = np.nan_to_num(cm_norm)  # Replace NaN with 0
+
+    # Plot confusion matrix
+    plt.figure(figsize=(12, 10))
+    sns.heatmap(
+        cm_norm,
+        annot=False,
+        fmt=".2f",
+        cmap="Blues",
+        xticklabels=all_chars + ["OTHER"],
+        yticklabels=all_chars + ["OTHER"],
+    )
+    plt.title("Character Prediction Confusion Matrix")
+    plt.xlabel("Predicted")
+    plt.ylabel("Ground Truth")
+    plt.tight_layout()
+    plt.savefig(
+        os.path.join(EVAL_CHARTS_DIR, f"{save_prefix}_char_confusion_matrix.png")
+    )
+    plt.close()
+
+    # Character frequency comparison
+    char_freq_gt = [gt_counter.get(c, 0) for c in all_chars]
+    char_freq_pred = [pred_counter.get(c, 0) for c in all_chars]
+
+    # Plot character frequency comparison
+    plt.figure(figsize=(14, 6))
+    width = 0.35
+    x = np.arange(len(all_chars))
+    plt.bar(x - width / 2, char_freq_gt, width, label="Ground Truth")
+    plt.bar(x + width / 2, char_freq_pred, width, label="Predicted")
+    plt.xlabel("Character")
+    plt.ylabel("Frequency")
+    plt.title("Character Frequency Comparison")
+    plt.xticks(x, all_chars, rotation=45)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(EVAL_CHARTS_DIR, f"{save_prefix}_char_frequency.png"))
+    plt.close()
+
+    # Identify most problematic characters
+    error_rates = {}
+    for char in all_chars:
+        gt_indices = [i for i, c in enumerate(gt_chars) if c == char]
+        if not gt_indices:
+            continue
+
+        errors = sum(1 for i in gt_indices if pred_chars[i] != char)
+        error_rate = errors / len(gt_indices)
+        error_rates[char] = (error_rate, len(gt_indices))
+
+    # Plot character error rates
+    chars, rates = zip(
+        *[
+            (c, r)
+            for c, (r, _) in sorted(
+                error_rates.items(), key=lambda x: x[1][0], reverse=True
+            )[:20]
+        ]
+    )
+    plt.figure(figsize=(14, 6))
+    plt.bar(chars, rates, color="salmon")
+    plt.xlabel("Character")
+    plt.ylabel("Error Rate")
+    plt.title("Top 20 Characters with Highest Error Rates")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.savefig(os.path.join(EVAL_CHARTS_DIR, f"{save_prefix}_char_error_rates.png"))
+    plt.close()
 
 
 # --- Run evaluation ---
 print("🔍 Running evaluation on test set...")
-test_results, test_metrics = evaluate_dataset(
+test_results, test_metrics, test_gt_chars, test_pred_chars = evaluate_dataset(
     IMAGE_DIR, LABEL_DIR, num_samples=50, save_prefix="test"
 )
 
 # --- Run evaluation on unseen test set (if available) ---
+unseen_results = []
+unseen_metrics = {}
+unseen_gt_chars = []
+unseen_pred_chars = []
+
 if os.path.exists(UNSEEN_IMAGE_DIR):
     print("\n🔍 Running evaluation on unseen test set...")
-    unseen_results, unseen_metrics = evaluate_dataset(
-        UNSEEN_IMAGE_DIR, LABEL_DIR, num_samples=20, save_prefix="unseen"
+    unseen_results, unseen_metrics, unseen_gt_chars, unseen_pred_chars = (
+        evaluate_dataset(
+            UNSEEN_IMAGE_DIR, LABEL_DIR, num_samples=20, save_prefix="unseen"
+        )
     )
 
     # Compare metrics between test set and unseen test set
@@ -344,6 +541,63 @@ if os.path.exists(UNSEEN_IMAGE_DIR):
             f"{metric}: {test_metrics[metric]:.4f} (test) vs {unseen_metrics[metric]:.4f} (unseen)"
         )
     print("==============================\n")
+
+    # Create comparison chart
+    if SAVE_RESULTS:
+        plt.figure(figsize=(10, 6))
+        metrics = ["cer", "word_accuracy", "char_accuracy"]
+        x = np.arange(len(metrics))
+        width = 0.35
+
+        test_values = [test_metrics[m] for m in metrics]
+        unseen_values = [unseen_metrics[m] for m in metrics]
+
+        plt.bar(x - width / 2, test_values, width, label="Test Set")
+        plt.bar(x + width / 2, unseen_values, width, label="Unseen Test Set")
+
+        plt.xlabel("Metrics")
+        plt.ylabel("Value")
+        plt.title("Performance Comparison: Test vs. Unseen Test")
+        plt.xticks(x, ["CER (lower is better)", "Word Accuracy", "Character Accuracy"])
+        plt.legend()
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(EVAL_CHARTS_DIR, "test_vs_unseen_comparison.png"))
+        plt.close()
+
+        # Create a summary of results in CSV format
+        summary_df = pd.DataFrame(
+            {
+                "Metric": [
+                    "Character Error Rate (CER)",
+                    "Word Accuracy",
+                    "Character Accuracy",
+                    "Average Edit Distance",
+                    "Sample Count",
+                ],
+                "Test Set": [
+                    test_metrics["cer"],
+                    test_metrics["word_accuracy"],
+                    test_metrics["char_accuracy"],
+                    test_metrics["edit_distance"],
+                    len(test_results),
+                ],
+                "Unseen Test Set": [
+                    unseen_metrics["cer"],
+                    unseen_metrics["word_accuracy"],
+                    unseen_metrics["char_accuracy"],
+                    unseen_metrics["edit_distance"],
+                    len(unseen_results),
+                ],
+            }
+        )
+
+        summary_df.to_csv(
+            os.path.join(RESULTS_DIR, "evaluation_summary.csv"), index=False
+        )
+        print(
+            f"Saved evaluation summary to {os.path.join(RESULTS_DIR, 'evaluation_summary.csv')}"
+        )
 
 
 # --- Interactive demo ---
@@ -383,3 +637,4 @@ def demo():
 # demo()
 
 print("✅ Evaluation completed. Results saved in:", RESULTS_DIR)
+print("📊 Evaluation charts saved in:", EVAL_CHARTS_DIR)
