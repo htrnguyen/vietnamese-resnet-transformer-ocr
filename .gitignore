@@ -27,6 +27,7 @@ profile_default/
 ipython_config.py
 
 # Data files
+CNN_TR_OCR/
 vietnamese/train_images/
 vietnamese/test_image/
 vietnamese/unseen_test_images/
@@ -54,6 +55,17 @@ ENV/
 
 # Logs
 *.log
+
+# Models files
+*.h5
+*.hdf5
+*.ckpt
+*.ckpt.index
+*.pth 
+*.pt
+*.onnx
+*.pb
+*.tflite
 
 # OS specific files
 .DS_Store
