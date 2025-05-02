@@ -14,7 +14,7 @@ from sklearn.metrics import confusion_matrix
 from torchvision import transforms
 from tqdm import tqdm
 
-from dataset_polygon import char2idx, encode_text, idx2char
+from dataset_polygon import char2idx, idx2char
 from model_cnn_transformer import OCRModel
 
 # --- Configuration ---
@@ -26,26 +26,21 @@ UNSEEN_IMAGE_DIR = os.path.join("vietnamese", "unseen_test_images")
 LABEL_DIR = os.path.join("vietnamese", "labels")
 MAX_LEN = 36
 SAVE_RESULTS = True
-SAVE_SAMPLE_IMAGES = False  # Không lưu ảnh mẫu test nữa
+SAVE_SAMPLE_IMAGES = False
 RESULTS_DIR = "results"
 EVAL_CHARTS_DIR = os.path.join(RESULTS_DIR, "evaluation_charts")
 
 # Xác định token SOS chính xác từ char2idx để đảm bảo nhất quán
-SOS_TOKEN = None
-for token in char2idx.keys():
-    if "SOS" in token:
-        SOS_TOKEN = token
-        print(f"Found SOS token: '{SOS_TOKEN}'")
-        break
-
+SOS_TOKEN = next((token for token in char2idx.keys() if "SOS" in token), None)
 if SOS_TOKEN is None:
     raise ValueError("SOS token not found in vocabulary!")
+else:
+    print(f"Found SOS token: '{SOS_TOKEN}'")
 
-if SAVE_RESULTS and not os.path.exists(RESULTS_DIR):
-    os.makedirs(RESULTS_DIR)
-
-if SAVE_RESULTS and not os.path.exists(EVAL_CHARTS_DIR):
-    os.makedirs(EVAL_CHARTS_DIR)
+# Tạo các thư mục cần thiết
+if SAVE_RESULTS:
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    os.makedirs(EVAL_CHARTS_DIR, exist_ok=True)
 
 
 # --- Utility functions ---
@@ -60,7 +55,7 @@ def preprocess_image(img_path, box=None):
 
     transform = transforms.Compose(
         [
-            transforms.Resize((32, 128)),  # Match training transform
+            transforms.Resize((32, 128)),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
@@ -86,24 +81,14 @@ def greedy_decode(model, image_tensor):
     with torch.no_grad():
         image_tensor = image_tensor.to(DEVICE)
         memory = model.encoder(image_tensor)
-        ys = torch.tensor(
-            [[char2idx[SOS_TOKEN]]], device=DEVICE
-        )  # Use dynamic SOS token
-
-        # Initialize attention maps list (empty by default)
-        attention_maps = []
+        ys = torch.tensor([[char2idx[SOS_TOKEN]]], device=DEVICE)
 
         for _ in range(MAX_LEN):
-            # Get decoder output and attention weights
             out = model.decoder(
                 ys,
                 memory,
                 tgt_mask=model.generate_square_subsequent_mask(ys.size(1)).to(DEVICE),
             )
-
-            # Note: In standard PyTorch implementation, attention weights are not accessible
-            # directly from MultiheadAttention. We'll skip this part but keep the structure
-            # for possible future modifications.
 
             prob = out[:, -1, :]
             _, next_word = torch.max(prob, dim=1)
@@ -111,7 +96,10 @@ def greedy_decode(model, image_tensor):
             if next_word.item() == char2idx["<EOS>"]:
                 break
 
-        return decode_sequence(ys.squeeze(0).tolist()), attention_maps
+        return (
+            decode_sequence(ys.squeeze(0).tolist()),
+            None,
+        )  # Không trả về attention_maps
 
 
 def calculate_metrics(ground_truth, prediction):
@@ -136,58 +124,29 @@ def calculate_metrics(ground_truth, prediction):
     }
 
 
-def visualize_attention(image, text, attention_map=None, save_path=None):
-    """Visualize input image, prediction, and attention heatmap"""
-    plt.figure(figsize=(12, 6))
-
-    # Plot original image
-    plt.subplot(1, 2 if attention_map is not None else 1, 1)
-    plt.imshow(image)
-    plt.title(f"Text: {text}")
-    plt.axis("off")
-
-    # Plot attention heatmap if available
-    if attention_map is not None:
-        plt.subplot(1, 2, 2)
-        att_map = attention_map.mean(dim=0)[0]  # Average over attention heads
-        plt.imshow(image)
-
-        # Reshape attention to image dimensions
-        h, w = image.shape[:2]
-        att_h, att_w = int(np.sqrt(att_map.shape[0])), int(np.sqrt(att_map.shape[0]))
-        att_map = att_map.reshape(att_h, att_w)
-        att_map = cv2.resize(att_map.numpy(), (w, h))
-
-        plt.imshow(att_map, alpha=0.6, cmap=cm.jet)
-        plt.title("Attention Heatmap")
-        plt.axis("off")
-
-    plt.tight_layout()
-
-    if save_path:
-        plt.savefig(save_path)
-        plt.close()
-    else:
-        plt.show()
-
-
 # --- Load model ---
-model = OCRModel(vocab_size=VOCAB_SIZE).to(DEVICE)
+def load_model():
+    """Load the OCR model"""
+    model = OCRModel(vocab_size=VOCAB_SIZE).to(DEVICE)
 
-# Try loading the best model, fall back to regular model if not found
-try:
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
-    print(f"Loaded model from {MODEL_PATH}")
-except FileNotFoundError:
-    alt_model_path = "ocr_model.pth"
-    model.load_state_dict(torch.load(alt_model_path, map_location=DEVICE))
-    print(f"Could not find {MODEL_PATH}, loaded model from {alt_model_path} instead")
+    # Try loading the best model, fall back to regular model if not found
+    try:
+        model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
+        print(f"Loaded model from {MODEL_PATH}")
+    except FileNotFoundError:
+        alt_model_path = "ocr_model.pth"
+        model.load_state_dict(torch.load(alt_model_path, map_location=DEVICE))
+        print(
+            f"Could not find {MODEL_PATH}, loaded model from {alt_model_path} instead"
+        )
 
-model.eval()
+    model.eval()
+    return model
 
 
 # --- Evaluate on test set ---
-def evaluate_dataset(image_dir, label_dir, num_samples=None, save_prefix="test"):
+def evaluate_dataset(model, image_dir, label_dir, num_samples=None, save_prefix="test"):
+    """Evaluate model on a dataset and return metrics"""
     print(f"💬 Evaluating on {image_dir}...")
 
     # Get image files from directory
@@ -243,7 +202,7 @@ def evaluate_dataset(image_dir, label_dir, num_samples=None, save_prefix="test")
                         continue
 
                     image_tensor = preprocess_image(img_path, (x1, y1, x2, y2))
-                    pred_text, attention_maps = greedy_decode(model, image_tensor)
+                    pred_text, _ = greedy_decode(model, image_tensor)
 
                     # Calculate metrics
                     metrics = calculate_metrics(text_gt, pred_text)
@@ -302,10 +261,11 @@ def evaluate_dataset(image_dir, label_dir, num_samples=None, save_prefix="test")
     # Create and save detailed metrics visualization
     if SAVE_RESULTS:
         create_metrics_visualization(results, save_prefix)
-
-    # Create character error visualization
-    if SAVE_RESULTS and len(all_gt_chars) > 0:
-        create_character_error_visualization(all_gt_chars, all_pred_chars, save_prefix)
+        # Create character error visualization
+        if len(all_gt_chars) > 0:
+            create_character_error_visualization(
+                all_gt_chars, all_pred_chars, save_prefix
+            )
 
     return results, avg_metrics, all_gt_chars, all_pred_chars
 
@@ -361,7 +321,6 @@ def create_metrics_visualization(results, save_prefix):
 
 def create_character_error_visualization(gt_chars, pred_chars, save_prefix):
     """Create and save character error visualizations"""
-
     # Count character occurrences
     gt_counter = Counter(gt_chars)
     pred_counter = Counter(pred_chars)
@@ -448,115 +407,92 @@ def create_character_error_visualization(gt_chars, pred_chars, save_prefix):
         error_rates[char] = (error_rate, len(gt_indices))
 
     # Plot character error rates
-    chars, rates = zip(
-        *[
-            (c, r)
-            for c, (r, _) in sorted(
-                error_rates.items(), key=lambda x: x[1][0], reverse=True
-            )[:20]
-        ]
-    )
-    plt.figure(figsize=(14, 6))
-    plt.bar(chars, rates, color="salmon")
-    plt.xlabel("Character")
-    plt.ylabel("Error Rate")
-    plt.title("Top 20 Characters with Highest Error Rates")
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    plt.savefig(os.path.join(EVAL_CHARTS_DIR, f"{save_prefix}_char_error_rates.png"))
-    plt.close()
-
-
-# --- Run evaluation ---
-print("🔍 Running evaluation on test set...")
-test_results, test_metrics, test_gt_chars, test_pred_chars = evaluate_dataset(
-    IMAGE_DIR, LABEL_DIR, num_samples=50, save_prefix="test"
-)
-
-# --- Run evaluation on unseen test set (if available) ---
-unseen_results = []
-unseen_metrics = {}
-unseen_gt_chars = []
-unseen_pred_chars = []
-
-if os.path.exists(UNSEEN_IMAGE_DIR):
-    print("\n🔍 Running evaluation on unseen test set...")
-    unseen_results, unseen_metrics, unseen_gt_chars, unseen_pred_chars = (
-        evaluate_dataset(
-            UNSEEN_IMAGE_DIR, LABEL_DIR, num_samples=20, save_prefix="unseen"
+    if error_rates:
+        chars, rates = zip(
+            *[
+                (c, r)
+                for c, (r, _) in sorted(
+                    error_rates.items(), key=lambda x: x[1][0], reverse=True
+                )[:20]
+            ]
         )
-    )
-
-    # Compare metrics between test set and unseen test set
-    print("\n===== Test vs Unseen Test =====")
-    for metric in test_metrics:
-        print(
-            f"{metric}: {test_metrics[metric]:.4f} (test) vs {unseen_metrics[metric]:.4f} (unseen)"
-        )
-    print("==============================\n")
-
-    # Create comparison chart
-    if SAVE_RESULTS:
-        plt.figure(figsize=(10, 6))
-        metrics = ["cer", "word_accuracy", "char_accuracy"]
-        x = np.arange(len(metrics))
-        width = 0.35
-
-        test_values = [test_metrics[m] for m in metrics]
-        unseen_values = [unseen_metrics[m] for m in metrics]
-
-        plt.bar(x - width / 2, test_values, width, label="Test Set")
-        plt.bar(x + width / 2, unseen_values, width, label="Unseen Test Set")
-
-        plt.xlabel("Metrics")
-        plt.ylabel("Value")
-        plt.title("Performance Comparison: Test vs. Unseen Test")
-        plt.xticks(x, ["CER (lower is better)", "Word Accuracy", "Character Accuracy"])
-        plt.legend()
-
+        plt.figure(figsize=(14, 6))
+        plt.bar(chars, rates, color="salmon")
+        plt.xlabel("Character")
+        plt.ylabel("Error Rate")
+        plt.title("Top 20 Characters with Highest Error Rates")
+        plt.xticks(rotation=45)
         plt.tight_layout()
-        plt.savefig(os.path.join(EVAL_CHARTS_DIR, "test_vs_unseen_comparison.png"))
+        plt.savefig(
+            os.path.join(EVAL_CHARTS_DIR, f"{save_prefix}_char_error_rates.png")
+        )
         plt.close()
 
-        # Create a summary of results in CSV format
-        summary_df = pd.DataFrame(
-            {
-                "Metric": [
-                    "Character Error Rate (CER)",
-                    "Word Accuracy",
-                    "Character Accuracy",
-                    "Average Edit Distance",
-                    "Sample Count",
-                ],
-                "Test Set": [
-                    test_metrics["cer"],
-                    test_metrics["word_accuracy"],
-                    test_metrics["char_accuracy"],
-                    test_metrics["edit_distance"],
-                    len(test_results),
-                ],
-                "Unseen Test Set": [
-                    unseen_metrics["cer"],
-                    unseen_metrics["word_accuracy"],
-                    unseen_metrics["char_accuracy"],
-                    unseen_metrics["edit_distance"],
-                    len(unseen_results),
-                ],
-            }
-        )
 
-        summary_df.to_csv(
-            os.path.join(RESULTS_DIR, "evaluation_summary.csv"), index=False
-        )
-        print(
-            f"Saved evaluation summary to {os.path.join(RESULTS_DIR, 'evaluation_summary.csv')}"
-        )
+def create_comparison_visualization(
+    test_metrics, unseen_metrics, test_results, unseen_results
+):
+    """Create visualization comparing test and unseen test results"""
+    plt.figure(figsize=(10, 6))
+    metrics = ["cer", "word_accuracy", "char_accuracy"]
+    x = np.arange(len(metrics))
+    width = 0.35
+
+    test_values = [test_metrics[m] for m in metrics]
+    unseen_values = [unseen_metrics[m] for m in metrics]
+
+    plt.bar(x - width / 2, test_values, width, label="Test Set")
+    plt.bar(x + width / 2, unseen_values, width, label="Unseen Test Set")
+
+    plt.xlabel("Metrics")
+    plt.ylabel("Value")
+    plt.title("Performance Comparison: Test vs. Unseen Test")
+    plt.xticks(x, ["CER (lower is better)", "Word Accuracy", "Character Accuracy"])
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(EVAL_CHARTS_DIR, "test_vs_unseen_comparison.png"))
+    plt.close()
+
+    # Create a summary of results in CSV format
+    summary_df = pd.DataFrame(
+        {
+            "Metric": [
+                "Character Error Rate (CER)",
+                "Word Accuracy",
+                "Character Accuracy",
+                "Average Edit Distance",
+                "Sample Count",
+            ],
+            "Test Set": [
+                test_metrics["cer"],
+                test_metrics["word_accuracy"],
+                test_metrics["char_accuracy"],
+                test_metrics["edit_distance"],
+                len(test_results),
+            ],
+            "Unseen Test Set": [
+                unseen_metrics["cer"],
+                unseen_metrics["word_accuracy"],
+                unseen_metrics["char_accuracy"],
+                unseen_metrics["edit_distance"],
+                len(unseen_results),
+            ],
+        }
+    )
+
+    summary_df.to_csv(os.path.join(RESULTS_DIR, "evaluation_summary.csv"), index=False)
+    print(
+        f"Saved evaluation summary to {os.path.join(RESULTS_DIR, 'evaluation_summary.csv')}"
+    )
 
 
-# --- Interactive demo ---
 def demo():
-    print("\n🔮 Interactive Demo Mode")
+    """Interactive demo to test the model on arbitrary images"""
+    print("\nInteractive Demo Mode")
     print("Enter image path (relative to working directory) or 'q' to quit:")
+
+    model = load_model()
 
     while True:
         user_input = input("> ")
@@ -586,8 +522,54 @@ def demo():
             print(f"Error processing image: {e}")
 
 
-# Uncomment to run interactive demo
-# demo()
+def main():
+    """Main evaluation function"""
+    # Load model
+    model = load_model()
 
-print("✅ Evaluation completed. Results saved in:", RESULTS_DIR)
-print("📊 Evaluation charts saved in:", EVAL_CHARTS_DIR)
+    # Run evaluation on test set
+    print("Running evaluation on test set...")
+    test_results, test_metrics, test_gt_chars, test_pred_chars = evaluate_dataset(
+        model, IMAGE_DIR, LABEL_DIR, num_samples=None, save_prefix="test"
+    )
+
+    # Run evaluation on unseen test set (if available)
+    unseen_results = []
+    unseen_metrics = {}
+    unseen_gt_chars = []
+    unseen_pred_chars = []
+
+    if os.path.exists(UNSEEN_IMAGE_DIR):
+        print("\nRunning evaluation on unseen test set...")
+        unseen_results, unseen_metrics, unseen_gt_chars, unseen_pred_chars = (
+            evaluate_dataset(
+                model,
+                UNSEEN_IMAGE_DIR,
+                LABEL_DIR,
+                num_samples=None,
+                save_prefix="unseen",
+            )
+        )
+
+        # Compare metrics between test set and unseen test set
+        print("\n===== Test vs Unseen Test =====")
+        for metric in test_metrics:
+            print(
+                f"{metric}: {test_metrics[metric]:.4f} (test) vs {unseen_metrics[metric]:.4f} (unseen)"
+            )
+        print("==============================\n")
+
+        # Create comparison visualization
+        if SAVE_RESULTS:
+            create_comparison_visualization(
+                test_metrics, unseen_metrics, test_results, unseen_results
+            )
+
+    print("Evaluation completed. Results saved in:", RESULTS_DIR)
+    print("Evaluation charts saved in:", EVAL_CHARTS_DIR)
+
+
+if __name__ == "__main__":
+    main()
+    # Uncomment to run interactive demo
+    # demo()
