@@ -14,7 +14,7 @@ from model_cnn_transformer import OCRModel
 
 # --- Hyperparameters ---
 BATCH_SIZE = 32
-EPOCHS = 1
+EPOCHS = 10
 LEARNING_RATE = 1e-4
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 VOCAB_SIZE = len(char2idx)

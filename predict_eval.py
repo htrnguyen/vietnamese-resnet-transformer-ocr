@@ -147,7 +147,7 @@ def load_model():
 # --- Evaluate on test set ---
 def evaluate_dataset(model, image_dir, label_dir, num_samples=None, save_prefix="test"):
     """Evaluate model on a dataset and return metrics"""
-    print(f"💬 Evaluating on {image_dir}...")
+    print(f"Evaluating on {image_dir}...")
 
     # Get image files from directory
     image_files = [f for f in os.listdir(image_dir) if f.endswith(".jpg")]
