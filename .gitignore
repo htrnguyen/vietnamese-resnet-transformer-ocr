@@ -32,9 +32,6 @@ vietnamese/train_images/
 vietnamese/test_image/
 vietnamese/unseen_test_images/
 vietnamese/labels/
-*.jpg
-*.jpeg
-*.png
 *.bmp
 *.tif
 *.tiff
