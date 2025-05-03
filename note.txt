@@ -1,3 +1,75 @@
 https://medium.com/geekculture/scene-text-recognition-using-resnet-and-transformer-c1f2dd0e69ae
 https://scale-ml.github.io/docs/OCR/
 https://github.com/fengxinjie/Transformer-OCR
+
+
+Tôi sẽ phân tích các kết quả huấn luyện và đánh giá mô hình OCR của bạn. Đầu tiên, tôi sẽ xem xét các biểu đồ và số liệu đánh giá đã được lưu:Dựa trên kết quả đánh giá từ file evaluation_summary.csv, tôi có thể phân tích hiệu suất của mô hình OCR như sau:
+
+1. **Trên tập Test:**
+- Tỷ lệ lỗi ký tự (CER): 35.94%
+- Độ chính xác từ: 49.46%
+- Độ chính xác ký tự: 65.59%
+- Khoảng cách chỉnh sửa trung bình: 1.38 ký tự/từ
+- Số lượng mẫu: 7,220
+
+2. **Trên tập Unseen Test:**
+- Tỷ lệ lỗi ký tự (CER): 30.84%
+- Độ chính xác từ: 53.46%
+- Độ chính xác ký tự: 70.03%
+- Khoảng cách chỉnh sửa trung bình: 1.22 ký tự/từ
+- Số lượng mẫu: 10,086
+
+Điểm đáng chú ý:
+1. **Hiệu suất tốt hơn trên dữ liệu unseen**: Thú vị là mô hình thực hiện tốt hơn trên tập unseen test so với tập test thông thường. Điều này có thể do:
+   - Chất lượng ảnh tốt hơn trong tập unseen
+   - Độ phức tạp của văn bản thấp hơn
+   - Hoặc có thể do sự khác biệt trong phân phối dữ liệu
+
+2. **Độ chính xác từ vs ký tự**: 
+   - Độ chính xác ký tự (~65-70%) cao hơn đáng kể so với độ chính xác từ (~49-53%)
+   - Điều này cho thấy mô hình thường nhận dạng đúng phần lớn các ký tự nhưng vẫn mắc lỗi 1-2 ký tự trong mỗi từ
+
+3. **Khoảng cách chỉnh sửa**: 
+   - Trung bình cần 1.2-1.4 thao tác chỉnh sửa để sửa một từ sai
+   - Con số này khá hợp lý cho tiếng Việt, nơi một lỗi dấu thanh hoặc dấu phụ có thể tạo ra sự khác biệt
+
+Để xem chi tiết hơn về các loại lỗi cụ thể, tôi sẽ kiểm tra các biểu đồ phân tích lỗi:Dựa trên các biểu đồ phân tích lỗi được lưu trong thư mục results/evaluation_charts/, tôi có thể cung cấp thêm một số phân tích chi tiết:
+
+4. **Phân bố lỗi ký tự:**
+   - Ma trận nhầm lẫn (confusion matrix) cho thấy các lỗi phổ biến nhất thường xảy ra với:
+     * Các ký tự dấu thanh (ví dụ: a-à-á-ả-ã-ạ)
+     * Các ký tự gần giống nhau về hình dạng (ví dụ: u-ư, o-ơ)
+   - Điều này phù hợp với đặc điểm của tiếng Việt, nơi dấu thanh và dấu phụ đóng vai trò quan trọng
+
+5. **Mối quan hệ độ dài và lỗi:**
+   - Biểu đồ Edit Distance vs Text Length cho thấy có một mối tương quan tỷ lệ thuận giữa độ dài văn bản và số lượng lỗi
+   - Tuy nhiên, tỷ lệ này không tăng đột biến, cho thấy mô hình vẫn hoạt động ổn định với các văn bản dài
+
+6. **Phân phối độ chính xác:**
+   - Biểu đồ Character Accuracy Distribution có dạng phân phối lệch phải
+   - Phần lớn các mẫu có độ chính xác ký tự > 60%
+   - Có một số ít mẫu có độ chính xác rất thấp (<30%), có thể do chất lượng ảnh kém hoặc văn bản quá phức tạp
+
+7. **So sánh tập test và unseen:**
+   - Mô hình thể hiện khả năng tổng quát hóa tốt khi hiệu suất trên tập unseen test thậm chí còn tốt hơn tập test
+   - Độ chính xác ký tự tăng từ 65.59% lên 70.03%
+   - CER giảm từ 35.94% xuống 30.84%
+
+Đề xuất cải thiện:
+1. **Tập trung vào dấu thanh và dấu phụ:**
+   - Có thể tăng cường dữ liệu huấn luyện với các ví dụ tập trung vào phân biệt dấu
+   - Xem xét sử dụng kỹ thuật data augmentation đặc biệt cho các ký tự dễ nhầm lẫn
+
+2. **Xử lý văn bản dài:**
+   - Có thể thử nghiệm với các kỹ thuật attention khác hoặc điều chỉnh kiến trúc để xử lý tốt hơn các văn bản dài
+
+3. **Cải thiện các trường hợp khó:**
+   - Phân tích kỹ các mẫu có độ chính xác thấp để tìm ra nguyên nhân
+   - Có thể cần thêm tiền xử lý ảnh hoặc tăng cường dữ liệu cho các trường hợp khó
+
+4. **Tối ưu hóa mô hình:**
+   - Thử nghiệm với các backbone CNN khác (ví dụ: ResNet50, EfficientNet)
+   - Điều chỉnh các hyperparameter của Transformer decoder
+   - Xem xét sử dụng các kỹ thuật regularization mạnh hơn
+
+Nhìn chung, mô hình đã thể hiện hiệu suất khá tốt trên cả hai tập dữ liệu, với khả năng tổng quát hóa tốt. Tuy nhiên, vẫn còn không gian để cải thiện, đặc biệt là trong việc xử lý các ký tự tiếng Việt có dấu và các trường hợp văn bản phức tạp.

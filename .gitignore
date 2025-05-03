@@ -56,16 +56,16 @@ ENV/
 # Logs
 *.log
 
-# Models files
-*.h5
-*.hdf5
-*.ckpt
-*.ckpt.index
-*.pth 
-*.pt
-*.onnx
-*.pb
-*.tflite
+# # Models files
+# *.h5
+# *.hdf5
+# *.ckpt
+# *.ckpt.index
+# *.pth 
+# *.pt
+# *.onnx
+# *.pb
+# *.tflite
 
 # OS specific files
 .DS_Store
