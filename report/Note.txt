@@ -1,0 +1,5 @@
+Nguồn dữ liệu:
+-	https://www.kaggle.com/datasets/trongnguyen04/vietnamese-ocr
+
+GitHub repository:
+-	https://github.com/htrnguyen/vietnamese-resnet-transformer-ocr

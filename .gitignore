@@ -64,6 +64,9 @@ ENV/
 # *.pb
 # *.tflite
 
+# zip files
+*.zip
+
 # OS specific files
 .DS_Store
 .DS_Store?
