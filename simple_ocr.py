@@ -8,11 +8,13 @@ from dataset_polygon import char2idx, idx2char
 from model_cnn_transformer import OCRModel
 
 
-def load_model(model_path="models/best_ocr_model.pt"):
+def load_model(model_path="models/best_ocr_model.pth"):
     """Load the trained OCR model"""
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = OCRModel(vocab_size=len(char2idx)).to(device)
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.load_state_dict(
+        torch.load(model_path, map_location=device, weights_only=True)
+    )
     model.eval()
     return model, device
 
@@ -138,7 +140,7 @@ def process_image(image_path, model, device):
     return vis_image, results
 
 
-def ocr_image(image_path, model_path="best_ocr_model.pt", save_path=None):
+def ocr_image(image_path, model_path="models/best_ocr_model.pth", save_path=None):
     """
     Process an image with OCR and return/save the result
 
