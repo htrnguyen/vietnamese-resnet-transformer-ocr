@@ -8,7 +8,7 @@ import numpy as np
 import cv2
 
 # Load dictionary
-dict_path = os.path.join("vietnamese", "vn_dictionary.txt")  # Updated path
+dict_path = os.path.join("vietnamese", "vn_dictionary.txt")  
 with open(dict_path, encoding="utf-8") as f:
     lines = [l.strip() for l in f if l.strip()]
 vocab = sorted(set("".join(lines))) + ['<PAD>', '<SOS>', '<EOS>']

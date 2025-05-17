@@ -2,209 +2,246 @@ import math
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision.models as models
 
 
-class PositionalEncoding(nn.Module):
-    """
-    Positional encoding component for the Transformer model.
-    Adds positional information to input embeddings.
-    """
+class SqueezeExcitation(nn.Module):
+    def __init__(self, channel, reduction=16):
+        super(SqueezeExcitation, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channel, channel // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channel // reduction, channel, bias=False),
+            nn.Sigmoid(),
+        )
 
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y.expand_as(x)
+
+
+class FeaturePyramidNetwork(nn.Module):
+    def __init__(self, in_channels_list, out_channels):
+        super(FeaturePyramidNetwork, self).__init__()
+        self.lateral_convs = nn.ModuleList()
+        self.fpn_convs = nn.ModuleList()
+
+        for in_channels in in_channels_list:
+            self.lateral_convs.append(nn.Conv2d(in_channels, out_channels, 1))
+            self.fpn_convs.append(
+                nn.Sequential(
+                    nn.Conv2d(out_channels, out_channels, 3, padding=1),
+                    nn.BatchNorm2d(out_channels),
+                    nn.ReLU(inplace=True),
+                )
+            )
+
+    def forward(self, features):
+        laterals = [
+            lateral_conv(feature)
+            for feature, lateral_conv in zip(features, self.lateral_convs)
+        ]
+
+        for i in range(len(laterals) - 1, 0, -1):
+            laterals[i - 1] += F.interpolate(
+                laterals[i], size=laterals[i - 1].shape[-2:], mode="nearest"
+            )
+
+        outputs = [
+            fpn_conv(lateral) for lateral, fpn_conv in zip(laterals, self.fpn_convs)
+        ]
+        return outputs
+
+
+class VietnamesePositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=100):
-        """
-        Initialize positional encoding
+        super(VietnamesePositionalEncoding, self).__init__()
 
-        Args:
-            d_model: Dimension of the model
-            max_len: Maximum sequence length
-        """
-        super(PositionalEncoding, self).__init__()
-
-        # Create positional encoding matrix
+        # Base positional encoding
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len).unsqueeze(1)
         div_term = torch.exp(
             torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model)
         )
 
-        # Apply sine to even indices and cosine to odd indices
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)
 
-        # Register buffer (not a parameter, but part of the module)
+        # Add special encoding for Vietnamese tones and marks
+        tone_encoding = torch.zeros(max_len, d_model)
+        tone_encoding[:, : d_model // 4] = torch.sin(
+            position * div_term[: d_model // 4] * 2
+        )  # Higher frequency for tones
+        pe = pe + tone_encoding * 0.1  # Scale down tone encoding
+
+        pe = pe.unsqueeze(0)
         self.register_buffer("pe", pe)
 
+        # Learnable tone attention
+        self.tone_attention = nn.Sequential(
+            nn.Linear(d_model, d_model // 2),
+            nn.ReLU(),
+            nn.Linear(d_model // 2, d_model),
+            nn.Sigmoid(),
+        )
+
     def forward(self, x):
-        """
-        Add positional encoding to input tensor.
-
-        Args:
-            x: Input tensor
-
-        Returns:
-            Tensor with positional encoding added
-        """
-        x = x + self.pe[:, : x.size(1)]
-        return x
+        pos_enc = self.pe[:, : x.size(1)]
+        tone_weights = self.tone_attention(pos_enc)
+        return x + pos_enc * tone_weights
 
 
 class CNNEncoder(nn.Module):
-    """
-    CNN-based encoder that extracts features from input images.
-    Uses ResNet18 as the backbone feature extractor.
-    """
-
     def __init__(self, d_model):
-        """
-        Initialize CNN encoder
-
-        Args:
-            d_model: Output feature dimension
-        """
         super(CNNEncoder, self).__init__()
-        # Use pretrained ResNet18 but remove classification layers
-        base_model = models.resnet18(pretrained=True)
-        modules = list(base_model.children())[:-2]  # Remove FC and AvgPool
-        self.backbone = nn.Sequential(*modules)
 
-        # Projection layer to d_model dimensions
-        self.conv = nn.Conv2d(512, d_model, kernel_size=1)
+        # Load pretrained ResNet50
+        base_model = models.resnet50(pretrained=True)
+
+        # Extract layers for FPN
+        self.layer0 = nn.Sequential(
+            base_model.conv1, base_model.bn1, base_model.relu, base_model.maxpool
+        )
+        self.layer1 = base_model.layer1  # 256 channels
+        self.layer2 = base_model.layer2  # 512 channels
+        self.layer3 = base_model.layer3  # 1024 channels
+        self.layer4 = base_model.layer4  # 2048 channels
+
+        # Add SE blocks
+        self.se1 = SqueezeExcitation(256)
+        self.se2 = SqueezeExcitation(512)
+        self.se3 = SqueezeExcitation(1024)
+        self.se4 = SqueezeExcitation(2048)
+
+        # Feature Pyramid Network
+        self.fpn = FeaturePyramidNetwork(
+            in_channels_list=[256, 512, 1024, 2048], out_channels=d_model
+        )
+
+        # Final projection
+        self.final_conv = nn.Sequential(
+            nn.Conv2d(d_model * 4, d_model, 1),
+            nn.BatchNorm2d(d_model),
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(0.1),
+        )
 
     def forward(self, x):
-        """
-        Extract features from input images
+        # Extract features from different levels
+        x0 = self.layer0(x)
+        x1 = self.se1(self.layer1(x0))
+        x2 = self.se2(self.layer2(x1))
+        x3 = self.se3(self.layer3(x2))
+        x4 = self.se4(self.layer4(x3))
 
-        Args:
-            x: Input tensor of shape (batch_size, channels, height, width)
+        # FPN
+        features = self.fpn([x1, x2, x3, x4])
 
-        Returns:
-            Features of shape (batch_size, sequence_length, d_model)
-        """
-        # Extract features using ResNet backbone
-        feat = self.backbone(x)  # (B, 512, H/32, W/32)
+        # Concatenate and project
+        B, C, H, W = features[0].shape
+        combined = torch.cat(
+            [
+                F.interpolate(f, size=(H, W), mode="bilinear", align_corners=False)
+                for f in features
+            ],
+            dim=1,
+        )
 
-        # Project to required dimension
-        feat = self.conv(feat)  # (B, d_model, H/32, W/32)
+        feat = self.final_conv(combined)
 
         # Reshape to sequence format
         B, C, H, W = feat.shape
-        feat = feat.permute(0, 2, 3, 1).contiguous().view(B, -1, C)  # (B, H*W, d_model)
+        feat = feat.permute(0, 2, 3, 1).contiguous().view(B, -1, C)
         return feat
 
 
 class TransformerDecoder(nn.Module):
-    """
-    Transformer decoder that processes features from the CNN encoder
-    and generates output sequences.
-    """
-
-    def __init__(self, vocab_size, d_model=256, nhead=4, num_layers=3, max_len=36):
-        """
-        Initialize transformer decoder
-
-        Args:
-            vocab_size: Size of the vocabulary
-            d_model: Model dimension
-            nhead: Number of attention heads
-            num_layers: Number of transformer layers
-            max_len: Maximum sequence length
-        """
+    def __init__(
+        self, vocab_size, d_model=256, nhead=8, num_layers=6, max_len=36, dropout=0.1
+    ):
         super(TransformerDecoder, self).__init__()
 
-        # Token embedding layer
         self.embedding = nn.Embedding(vocab_size, d_model)
+        self.pos_encoding = VietnamesePositionalEncoding(d_model, max_len)
 
-        # Positional encoding
-        self.pos_encoding = PositionalEncoding(d_model, max_len)
-
-        # Transformer decoder layers
+        # Increased number of layers and heads
         decoder_layer = nn.TransformerDecoderLayer(
-            d_model, nhead, dim_feedforward=512, dropout=0.1, batch_first=True
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=d_model * 4,  # Increased feedforward dimension
+            dropout=dropout,
+            batch_first=True,
+            activation="gelu",  # Changed to GELU activation
         )
         self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers)
 
-        # Output projection
-        self.output_layer = nn.Linear(d_model, vocab_size)
+        # Output projection with layer normalization
+        self.layer_norm = nn.LayerNorm(d_model)
+        self.output_layer = nn.Sequential(
+            nn.Linear(d_model, d_model * 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(d_model * 2, vocab_size),
+        )
+
+        # Initialize weights
+        self._init_weights()
+
+    def _init_weights(self):
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
 
     def forward(self, tgt, memory, tgt_mask=None, memory_mask=None):
-        """
-        Process input sequences
-
-        Args:
-            tgt: Target sequence tensor
-            memory: Memory tensor from encoder
-            tgt_mask: Target mask for causal attention
-            memory_mask: Memory mask
-
-        Returns:
-            Output logits of shape (batch_size, seq_len, vocab_size)
-        """
-        # Embed tokens and add positional encoding
         tgt_emb = self.embedding(tgt)
         tgt_emb = self.pos_encoding(tgt_emb)
 
-        # Pass through transformer decoder
         output = self.transformer_decoder(
             tgt_emb, memory, tgt_mask=tgt_mask, memory_mask=memory_mask
         )
 
-        # Project to vocabulary size
+        output = self.layer_norm(output)
         return self.output_layer(output)
 
 
 class OCRModel(nn.Module):
-    """
-    Complete OCR model combining CNN encoder and Transformer decoder
-    for optical character recognition tasks.
-    """
-
     def __init__(self, vocab_size, d_model=256):
-        """
-        Initialize OCR model
-
-        Args:
-            vocab_size: Size of the vocabulary
-            d_model: Model dimension used throughout the network
-        """
         super(OCRModel, self).__init__()
         self.encoder = CNNEncoder(d_model)
-        self.decoder = TransformerDecoder(vocab_size, d_model)
+        self.decoder = TransformerDecoder(
+            vocab_size=vocab_size,
+            d_model=d_model,
+            nhead=8,  # Increased number of attention heads
+            num_layers=6,  # Increased number of layers
+            dropout=0.1,
+        )
+
+        # Add label smoothing
+        self.label_smoothing = 0.1
 
     def generate_square_subsequent_mask(self, sz):
-        """
-        Generate a square mask for the sequence to hide future tokens
-
-        Args:
-            sz: Sequence length
-
-        Returns:
-            Mask tensor
-        """
         mask = torch.triu(torch.ones((sz, sz)) * float("-inf"), diagonal=1)
         return mask
 
     def forward(self, images, tgt_seq):
-        """
-        Forward pass of the OCR model
-
-        Args:
-            images: Input images of shape (batch_size, channels, height, width)
-            tgt_seq: Target sequence tensor
-
-        Returns:
-            Output logits of shape (batch_size, seq_len, vocab_size)
-        """
-        # Extract features from images
         memory = self.encoder(images)
-
-        # Generate causal mask for decoder
         tgt_mask = self.generate_square_subsequent_mask(tgt_seq.size(1)).to(
             tgt_seq.device
         )
-
-        # Decode sequences
         output = self.decoder(tgt_seq, memory, tgt_mask=tgt_mask)
-
         return output
+
+    def compute_loss(self, output, target):
+        # Apply label smoothing
+        n_classes = output.size(-1)
+        one_hot = torch.zeros_like(output).scatter(1, target.unsqueeze(1), 1)
+        smooth_one_hot = one_hot * (1 - self.label_smoothing) + (
+            self.label_smoothing / n_classes
+        )
+        log_prob = F.log_softmax(output, dim=-1)
+        loss = (-smooth_one_hot * log_prob).sum(dim=-1).mean()
+        return loss
