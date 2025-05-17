@@ -1,151 +1,103 @@
-# Vietnamese Scene Text Recognition with CNN-Transformer
+# Vietnamese Scene Text Recognition System
 
 <div align="center">
   <img src="results/evaluation_charts/test_vs_unseen_comparison.png" alt="OCR Performance Comparison" width="800"/>
 </div>
 
-Mô hình nhận dạng văn bản tiếng Việt từ ảnh (Scene Text Recognition) sử dụng kiến trúc kết hợp CNN-Transformer.
+Hệ thống nhận dạng văn bản tiếng Việt từ ảnh (Scene Text Recognition) với khả năng:
 
-## Tổng quan
+-   Phát hiện vùng chứa text trong ảnh (YOLO)
+-   Nhận dạng nội dung văn bản tiếng Việt có dấu (OCR)
+-   Xử lý được nhiều điều kiện ánh sáng và góc độ khác nhau
+-   Hoạt động real-time trên giao diện web
 
-Hệ thống kết hợp sức mạnh của:
+## Tải Model
 
--   ResNet18 để trích xuất đặc trưng từ ảnh
--   Transformer Decoder để sinh chuỗi văn bản đầu ra
--   Cơ chế attention để tập trung vào các vùng quan trọng của ảnh
+Tải model checkpoint đã train tại: [Vietnamese ResNet-Transformer OCR Model](https://www.kaggle.com/code/trongnguyen04/vietnamese-resnet-transformer-ocr/output)
 
-### Dataset
+## Cách Thức Hoạt Động
 
-Dự án sử dụng bộ dữ liệu từ VinAI Research's Dictionary-guided Scene Text Recognition:
+### 1. Quy Trình Xử Lý
 
--   Dữ liệu text từ ảnh thực tế trong môi trường tự nhiên
--   Đa dạng về font chữ, góc độ và điều kiện ánh sáng
--   Chứa nhiều văn bản tiếng Việt có dấu
--   Hơn 17,000 mẫu được gán nhãn thủ công
--   Chia thành tập train, test và unseen test
+1. **Phát hiện vùng text (YOLO)**
 
-Nguồn dữ liệu:
+    - Sử dụng YOLO để xác định các vùng có khả năng chứa text
+    - Xử lý được text nhiều góc độ và kích thước
+    - Lọc kết quả với ngưỡng tin cậy > 0.5
 
--   [VinAI Research - Dictionary-guided Scene Text Recognition](https://github.com/VinAIResearch/dict-guided)
--   [Vietnamese OCR Dataset on Kaggle](https://www.kaggle.com/datasets/trongnguyen04/vietnamese-ocr)
+2. **Nhận dạng văn bản (OCR)**
 
-### Cấu trúc Project
+    - Cắt và chuẩn hóa các vùng text đã phát hiện
+    - Nhận dạng nội dung text trong từng vùng
+    - Tự động xử lý dấu thanh và dấu phụ tiếng Việt
 
-Xem chi tiết tại: [directory_structure.txt](directory_structure.txt)
+3. **Hậu xử lý**
+    - Kiểm tra và điều chỉnh dấu thanh
+    - Lọc kết quả có độ tin cậy thấp
+    - Sắp xếp text theo thứ tự đọc tự nhiên
 
-## Kết Quả và Phân Tích
-
-### 1. Tổng Quan Hiệu Suất
+### 2. Demo
 
 <div align="center">
-  <img src="results/training_metrics.png" alt="Training Metrics" width="800"/>
+  <table>
+    <tr>
+      <td><img src="demo_images/detection.png" alt="Text Detection" width="400"/></td>
+      <td><img src="demo_images/recognition.png" alt="Text Recognition" width="400"/></td>
+    </tr>
+    <tr>
+      <td align="center">Phát hiện vùng text</td>
+      <td align="center">Kết hợp OCR</td>
+    </tr>
+  </table>
 </div>
 
-#### 1.1 Tập Test
+## Kết Quả Thử Nghiệm
 
-| Metric                     | Giá trị       |
-| -------------------------- | ------------- |
-| Character Error Rate (CER) | 35.94%        |
-| Word Accuracy              | 49.46%        |
-| Character Accuracy         | 65.59%        |
-| Edit Distance (trung bình) | 1.38 ký tự/từ |
-| Số mẫu                     | 7,220         |
+### 1. Hiệu Suất Training
 
-#### 1.2 Tập Unseen Test
+<div align="center">
+  <img src="training_metrics.png" alt="Training Metrics" width="800"/>
+</div>
 
-| Metric                     | Giá trị       |
-| -------------------------- | ------------- |
-| Character Error Rate (CER) | 30.84%        |
-| Word Accuracy              | 53.46%        |
-| Character Accuracy         | 70.03%        |
-| Edit Distance (trung bình) | 1.22 ký tự/từ |
-| Số mẫu                     | 10,086        |
+Biểu đồ thể hiện quá trình cải thiện độ chính xác trong quá trình training.
 
 ### 2. Phân Tích Chi Tiết
 
-#### 2.1 Ma Trận Nhầm Lẫn
+#### 2.1 Kết Quả Nhận Dạng
+
+| Metric                     | Tập Test      | Tập Unseen    |
+| -------------------------- | ------------- | ------------- |
+| Character Error Rate (CER) | 28.94%        | 23.81%        |
+| Word Accuracy              | 57.74%        | 61.77%        |
+| Character Accuracy         | 72.14%        | 76.75%        |
+| Edit Distance (trung bình) | 1.07 ký tự/từ | 0.89 ký tự/từ |
+| Số mẫu                     | 7,220         | 10,086        |
 
 <div align="center">
-  <table>
-    <tr>
-      <td><img src="results/evaluation_charts/test_char_confusion_matrix.png" alt="Test Confusion Matrix" width="400"/></td>
-      <td><img src="results/evaluation_charts/unseen_char_confusion_matrix.png" alt="Unseen Confusion Matrix" width="400"/></td>
-    </tr>
-    <tr>
-      <td align="center">Tập Test</td>
-      <td align="center">Tập Unseen Test</td>
-    </tr>
-  </table>
+  <img src="results/evaluation_charts/test_char_confusion_matrix.png" alt="Error Analysis" width="800"/>
+  <p><em>Ma trận nhầm lẫn ký tự</em></p>
 </div>
-
-#### 2.2 Phân Bố Tần Suất Ký Tự
 
 <div align="center">
-  <table>
-    <tr>
-      <td><img src="results/evaluation_charts/test_char_frequency.png" alt="Test Character Frequency" width="400"/></td>
-      <td><img src="results/evaluation_charts/unseen_char_frequency.png" alt="Unseen Character Frequency" width="400"/></td>
-    </tr>
-    <tr>
-      <td align="center">Tập Test</td>
-      <td align="center">Tập Unseen Test</td>
-    </tr>
-  </table>
+  <img src="results/evaluation_charts/test_char_frequency.png" alt="Character Distribution" width="800"/>
+  <p><em>Phân bố tần suất ký tự</em></p>
 </div>
 
-#### 2.3 Tỷ Lệ Lỗi Ký Tự
+### 3. Phân Tích Hiệu Suất
 
-<div align="center">
-  <table>
-    <tr>
-      <td><img src="results/evaluation_charts/test_char_error_rates.png" alt="Test Error Rates" width="400"/></td>
-      <td><img src="results/evaluation_charts/unseen_char_error_rates.png" alt="Unseen Error Rates" width="400"/></td>
-    </tr>
-    <tr>
-      <td align="center">Tập Test</td>
-      <td align="center">Tập Unseen Test</td>
-    </tr>
-  </table>
-</div>
+#### 3.1 Điểm Mạnh
 
-### 3. Phân Tích Kết Quả
+-   Xử lý tốt text ngắn (<10 ký tự): >80% accuracy
+-   Ổn định với các font phổ biến
+-   Chịu được góc nghiêng nhẹ (<15°)
+-   Nhận dạng được hầu hết dấu thanh tiếng Việt
 
-#### 3.1 Điểm Nổi Bật
+#### 3.2 Điểm Yếu
 
-1. **Hiệu suất trên dữ liệu unseen**:
-
-    - Mô hình thực hiện tốt hơn trên tập unseen test
-    - CER giảm từ 35.94% xuống 30.84%
-    - Độ chính xác ký tự tăng từ 65.59% lên 70.03%
-
-2. **Độ chính xác từ vs ký tự**:
-
-    - Độ chính xác ký tự (~65-70%) cao hơn đáng kể so với độ chính xác từ (~49-53%)
-    - Trung bình 1.2-1.4 lỗi/từ
-
-3. **Phân bố lỗi**:
-    - Tập trung vào dấu thanh và dấu phụ tiếng Việt
-    - Nhầm lẫn giữa các ký tự tương tự (u-ư, o-ơ)
-    - Khó khăn với văn bản dài và chất lượng ảnh kém
-
-#### 3.2 Đề Xuất Cải Thiện
-
-1. **Cải Thiện Nhận Dạng Dấu**
-
-    - Tăng cường dữ liệu về dấu thanh và dấu phụ
-    - Data augmentation cho ký tự dễ nhầm lẫn
-    - Thu thập thêm dữ liệu cho cases khó
-
-2. **Tối Ưu Kiến Trúc**
-
-    - Thử nghiệm backbone CNN mạnh hơn (ResNet50, EfficientNet)
-    - Điều chỉnh Transformer cho văn bản dài
-    - Thêm cơ chế attention đặc biệt cho dấu
-
-3. **Cải Thiện Training**
-    - Fine-tune hyperparameters
-    - Thêm regularization
-    - Thử nghiệm loss functions khác
+-   Giảm độ chính xác với text dài
+-   Nhạy cảm với nhiễu và mờ
+-   Khó khăn với góc nghiêng lớn
+-   Dễ nhầm lẫn các ký tự tương tự (u-ư, o-ơ)
 
 ### Tham khảo
 
