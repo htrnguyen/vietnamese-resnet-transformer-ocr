@@ -316,6 +316,7 @@ def create_metrics_visualization(results, save_prefix):
 
     plt.tight_layout()
     plt.savefig(os.path.join(EVAL_CHARTS_DIR, f"{save_prefix}_metrics_detailed.png"))
+    plt.show()
     plt.close()
 
 
@@ -374,6 +375,7 @@ def create_character_error_visualization(gt_chars, pred_chars, save_prefix):
     plt.savefig(
         os.path.join(EVAL_CHARTS_DIR, f"{save_prefix}_char_confusion_matrix.png")
     )
+    plt.show()
     plt.close()
 
     # Character frequency comparison
@@ -393,6 +395,7 @@ def create_character_error_visualization(gt_chars, pred_chars, save_prefix):
     plt.legend()
     plt.tight_layout()
     plt.savefig(os.path.join(EVAL_CHARTS_DIR, f"{save_prefix}_char_frequency.png"))
+    plt.show()
     plt.close()
 
     # Identify most problematic characters
@@ -426,6 +429,7 @@ def create_character_error_visualization(gt_chars, pred_chars, save_prefix):
         plt.savefig(
             os.path.join(EVAL_CHARTS_DIR, f"{save_prefix}_char_error_rates.png")
         )
+        plt.show()
         plt.close()
 
 
@@ -571,5 +575,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    # Uncomment to run interactive demo
-    # demo()

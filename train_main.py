@@ -188,6 +188,7 @@ def plot_metrics(train_losses, val_losses, val_accuracies):
 
     plt.tight_layout()
     plt.savefig("training_metrics.png")
+    plt.show()
     plt.close()
 
     print("Training metrics visualization saved to 'training_metrics.png'")

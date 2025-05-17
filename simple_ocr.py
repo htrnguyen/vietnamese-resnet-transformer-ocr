@@ -8,7 +8,7 @@ from dataset_polygon import char2idx, idx2char
 from model_cnn_transformer import OCRModel
 
 
-def load_model(model_path="best_ocr_model.pt"):
+def load_model(model_path="models/best_ocr_model.pt"):
     """Load the trained OCR model"""
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = OCRModel(vocab_size=len(char2idx)).to(device)
