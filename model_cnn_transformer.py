@@ -75,8 +75,8 @@ class VietnamesePositionalEncoding(nn.Module):
         tone_encoding = torch.zeros(max_len, d_model)
         tone_encoding[:, : d_model // 4] = torch.sin(
             position * div_term[: d_model // 4] * 2
-        )  # Higher frequency for tones
-        pe = pe + tone_encoding * 0.1  # Scale down tone encoding
+        )  
+        pe = pe + tone_encoding * 0.1  
 
         pe = pe.unsqueeze(0)
         self.register_buffer("pe", pe)
