@@ -105,17 +105,18 @@ class CNNEncoder(nn.Module):
         )
 
         # EfficientNet-B3 feature extraction
-        # Extract blocks for FPN (using blocks 2, 3, 4, 6 for multi-scale features)
         self.stem = nn.Sequential(
             base_model.features[0],  # stem conv
             base_model.features[1],  # first block
         )
-        self.block2 = base_model.features[2]  # 48 channels
-        self.block3 = base_model.features[3]  # 136 channels
-        self.block4 = base_model.features[4]  # 384 channels
-        self.block6 = base_model.features[6]  # 1536 channels
+        self.block2 = base_model.features[2]
+        self.block3 = base_model.features[3]
+        self.block4 = base_model.features[4]
+        self.block5 = base_model.features[5]
+        self.block6 = base_model.features[6]
+        self.block7 = base_model.features[7]
 
-        # Feature Pyramid Network
+        # Feature Pyramid Network (tạm thời giữ nguyên, sẽ sửa lại sau khi biết số kênh)
         self.fpn = FeaturePyramidNetwork(
             in_channels_list=[48, 136, 384, 1536], out_channels=d_model
         )
@@ -129,14 +130,22 @@ class CNNEncoder(nn.Module):
         )
 
     def forward(self, x):
-        # Extract features from different levels
         x = self.stem(x)
+        print("stem:", x.shape)
         x2 = self.block2(x)
+        print("block2:", x2.shape)
         x3 = self.block3(x2)
+        print("block3:", x3.shape)
         x4 = self.block4(x3)
-        x6 = self.block6(x4)
+        print("block4:", x4.shape)
+        x5 = self.block5(x4)
+        print("block5:", x5.shape)
+        x6 = self.block6(x5)
+        print("block6:", x6.shape)
+        x7 = self.block7(x6)
+        print("block7:", x7.shape)
 
-        # FPN
+        # Tạm thời lấy các feature như cũ để không ảnh hưởng pipeline
         features = self.fpn([x2, x3, x4, x6])
 
         # Concatenate and project
