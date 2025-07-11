@@ -116,9 +116,9 @@ class CNNEncoder(nn.Module):
         self.block6 = base_model.features[6]
         self.block7 = base_model.features[7]
 
-        # Feature Pyramid Network (tạm thời giữ nguyên, sẽ sửa lại sau khi biết số kênh)
+        # Feature Pyramid Network (đã sửa lại số kênh)
         self.fpn = FeaturePyramidNetwork(
-            in_channels_list=[48, 136, 384, 1536], out_channels=d_model
+            in_channels_list=[32, 48, 96, 136], out_channels=d_model
         )
 
         # Final projection
@@ -131,22 +131,22 @@ class CNNEncoder(nn.Module):
 
     def forward(self, x):
         x = self.stem(x)
-        print("stem:", x.shape)
+        # print('stem:', x.shape)
         x2 = self.block2(x)
-        print("block2:", x2.shape)
+        # print('block2:', x2.shape)
         x3 = self.block3(x2)
-        print("block3:", x3.shape)
+        # print('block3:', x3.shape)
         x4 = self.block4(x3)
-        print("block4:", x4.shape)
+        # print('block4:', x4.shape)
         x5 = self.block5(x4)
-        print("block5:", x5.shape)
+        # print('block5:', x5.shape)
         x6 = self.block6(x5)
-        print("block6:", x6.shape)
+        # print('block6:', x6.shape)
         x7 = self.block7(x6)
-        print("block7:", x7.shape)
+        # print('block7:', x7.shape)
 
-        # Tạm thời lấy các feature như cũ để không ảnh hưởng pipeline
-        features = self.fpn([x2, x3, x4, x6])
+        # Lấy feature map từ x2, x3, x4, x5
+        features = self.fpn([x2, x3, x4, x5])
 
         # Concatenate and project
         B, C, H, W = features[0].shape
