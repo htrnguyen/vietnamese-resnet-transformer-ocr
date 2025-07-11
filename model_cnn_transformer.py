@@ -115,12 +115,6 @@ class CNNEncoder(nn.Module):
         self.block4 = base_model.features[4]  # 384 channels
         self.block6 = base_model.features[6]  # 1536 channels
 
-        # Add SE blocks (channel numbers must match above)
-        self.se2 = SqueezeExcitation(48)
-        self.se3 = SqueezeExcitation(136)
-        self.se4 = SqueezeExcitation(384)
-        self.se6 = SqueezeExcitation(1536)
-
         # Feature Pyramid Network
         self.fpn = FeaturePyramidNetwork(
             in_channels_list=[48, 136, 384, 1536], out_channels=d_model
@@ -137,10 +131,10 @@ class CNNEncoder(nn.Module):
     def forward(self, x):
         # Extract features from different levels
         x = self.stem(x)
-        x2 = self.se2(self.block2(x))
-        x3 = self.se3(self.block3(x2))
-        x4 = self.se4(self.block4(x3))
-        x6 = self.se6(self.block6(x4))
+        x2 = self.block2(x)
+        x3 = self.block3(x2)
+        x4 = self.block4(x3)
+        x6 = self.block6(x4)
 
         # FPN
         features = self.fpn([x2, x3, x4, x6])
