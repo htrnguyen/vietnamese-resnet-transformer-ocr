@@ -75,8 +75,8 @@ class VietnamesePositionalEncoding(nn.Module):
         tone_encoding = torch.zeros(max_len, d_model)
         tone_encoding[:, : d_model // 4] = torch.sin(
             position * div_term[: d_model // 4] * 2
-        )  
-        pe = pe + tone_encoding * 0.1  
+        )
+        pe = pe + tone_encoding * 0.1
 
         pe = pe.unsqueeze(0)
         self.register_buffer("pe", pe)
@@ -99,27 +99,31 @@ class CNNEncoder(nn.Module):
     def __init__(self, d_model):
         super(CNNEncoder, self).__init__()
 
-        # Load pretrained ResNet50
-        base_model = models.resnet50(pretrained=True)
-
-        # Extract layers for FPN
-        self.layer0 = nn.Sequential(
-            base_model.conv1, base_model.bn1, base_model.relu, base_model.maxpool
+        # Load pretrained EfficientNet-B3
+        base_model = models.efficientnet_b3(
+            weights=models.EfficientNet_B3_Weights.IMAGENET1K_V1
         )
-        self.layer1 = base_model.layer1  # 256 channels
-        self.layer2 = base_model.layer2  # 512 channels
-        self.layer3 = base_model.layer3  # 1024 channels
-        self.layer4 = base_model.layer4  # 2048 channels
 
-        # Add SE blocks
-        self.se1 = SqueezeExcitation(256)
-        self.se2 = SqueezeExcitation(512)
-        self.se3 = SqueezeExcitation(1024)
-        self.se4 = SqueezeExcitation(2048)
+        # EfficientNet-B3 feature extraction
+        # Extract blocks for FPN (using blocks 2, 3, 4, 6 for multi-scale features)
+        self.stem = nn.Sequential(
+            base_model.features[0],  # stem conv
+            base_model.features[1],  # first block
+        )
+        self.block2 = base_model.features[2]  # 48 channels
+        self.block3 = base_model.features[3]  # 136 channels
+        self.block4 = base_model.features[4]  # 384 channels
+        self.block6 = base_model.features[6]  # 1536 channels
+
+        # Add SE blocks (channel numbers must match above)
+        self.se2 = SqueezeExcitation(48)
+        self.se3 = SqueezeExcitation(136)
+        self.se4 = SqueezeExcitation(384)
+        self.se6 = SqueezeExcitation(1536)
 
         # Feature Pyramid Network
         self.fpn = FeaturePyramidNetwork(
-            in_channels_list=[256, 512, 1024, 2048], out_channels=d_model
+            in_channels_list=[48, 136, 384, 1536], out_channels=d_model
         )
 
         # Final projection
@@ -132,14 +136,14 @@ class CNNEncoder(nn.Module):
 
     def forward(self, x):
         # Extract features from different levels
-        x0 = self.layer0(x)
-        x1 = self.se1(self.layer1(x0))
-        x2 = self.se2(self.layer2(x1))
-        x3 = self.se3(self.layer3(x2))
-        x4 = self.se4(self.layer4(x3))
+        x = self.stem(x)
+        x2 = self.se2(self.block2(x))
+        x3 = self.se3(self.block3(x2))
+        x4 = self.se4(self.block4(x3))
+        x6 = self.se6(self.block6(x4))
 
         # FPN
-        features = self.fpn([x1, x2, x3, x4])
+        features = self.fpn([x2, x3, x4, x6])
 
         # Concatenate and project
         B, C, H, W = features[0].shape
