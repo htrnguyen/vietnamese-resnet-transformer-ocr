@@ -70,6 +70,10 @@ ENV/
 # zip files
 *.zip
 
+# model yolo
+run/
+results/
+
 # OS specific files
 .DS_Store
 .DS_Store?
