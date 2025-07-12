@@ -13,9 +13,12 @@ from dataset_polygon import OCRDataset, char2idx, idx2char
 from model_cnn_transformer import OCRModel
 
 # --- Hyperparameters ---
-BATCH_SIZE = 32
-EPOCHS = 10
-LEARNING_RATE = 1e-4
+BATCH_SIZE = 16  # Giảm batch size cho ConvNeXt-Large
+ACCUMULATION_STEPS = 2  # Gradient accumulation để tăng effective batch size
+EPOCHS = 20  # Tăng epochs cho convergence tốt hơn
+LEARNING_RATE = 5e-5  # Giảm learning rate cho ConvNeXt-Large
+WARMUP_EPOCHS = 3  # Warmup epochs
+WEIGHT_DECAY = 1e-4  # Weight decay cho AdamW
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 VOCAB_SIZE = len(char2idx)
 MODEL_SAVE_PATH = "ocr_model.pth"
@@ -86,12 +89,30 @@ def setup_model():
     """Initialize model, loss function, optimizer and scheduler"""
     model = OCRModel(vocab_size=VOCAB_SIZE).to(DEVICE)
     criterion = nn.CrossEntropyLoss(ignore_index=char2idx["<PAD>"])
-    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=3, verbose=True
+
+    # AdamW optimizer với weight decay cho ConvNeXt-Large
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=LEARNING_RATE,
+        weight_decay=WEIGHT_DECAY,
+        betas=(0.9, 0.999),
+        eps=1e-8,
     )
 
-    return model, criterion, optimizer, scheduler
+    # CosineAnnealingWarmRestarts với warmup cho ConvNeXt-Large
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer,
+        T_0=5,  # Restart every 5 epochs
+        T_mult=2,  # Double the restart interval
+        eta_min=1e-7,  # Minimum learning rate
+    )
+
+    # Warmup scheduler
+    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+        optimizer, start_factor=0.1, end_factor=1.0, total_iters=WARMUP_EPOCHS
+    )
+
+    return model, criterion, optimizer, scheduler, warmup_scheduler
 
 
 def validate(model, dataloader, criterion):
@@ -132,7 +153,10 @@ def train_epoch(model, train_loader, criterion, optimizer):
     epoch_loss = 0
     pbar = tqdm(train_loader)
 
-    for images, tgt_input, tgt_output in pbar:
+    # Gradient accumulation
+    optimizer.zero_grad()
+
+    for batch_idx, (images, tgt_input, tgt_output) in enumerate(pbar):
         images, tgt_input, tgt_output = (
             images.to(DEVICE),
             tgt_input.to(DEVICE),
@@ -145,15 +169,25 @@ def train_epoch(model, train_loader, criterion, optimizer):
 
         loss = criterion(output, tgt_output)
 
-        optimizer.zero_grad()
+        # Scale loss for gradient accumulation
+        loss = loss / ACCUMULATION_STEPS
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(
-            model.parameters(), max_norm=1.0
-        )  # Gradient clipping
-        optimizer.step()
 
-        epoch_loss += loss.item()
-        pbar.set_postfix(loss=loss.item())
+        # Gradient clipping
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+        # Update weights every ACCUMULATION_STEPS
+        if (batch_idx + 1) % ACCUMULATION_STEPS == 0:
+            optimizer.step()
+            optimizer.zero_grad()
+
+        epoch_loss += loss.item() * ACCUMULATION_STEPS
+        pbar.set_postfix(loss=loss.item() * ACCUMULATION_STEPS)
+
+    # Handle remaining gradients
+    if len(train_loader) % ACCUMULATION_STEPS != 0:
+        optimizer.step()
+        optimizer.zero_grad()
 
     return epoch_loss / len(train_loader)
 
@@ -199,7 +233,7 @@ def train_model():
     # Setup
     transform = setup_environment()
     _, _, train_loader, test_loader = load_datasets(transform)
-    model, criterion, optimizer, scheduler = setup_model()
+    model, criterion, optimizer, scheduler, warmup_scheduler = setup_model()
 
     # Training loop
     best_val_loss = float("inf")
@@ -233,7 +267,14 @@ def train_model():
             print(f"Best model saved with val_loss: {val_loss:.4f}")
 
         # Update learning rate
-        scheduler.step(val_loss)
+        if epoch < WARMUP_EPOCHS:
+            warmup_scheduler.step()
+        else:
+            scheduler.step()
+
+        # Print current learning rate
+        current_lr = optimizer.param_groups[0]["lr"]
+        print(f"Current LR: {current_lr:.2e}")
 
     # Plot and save metrics
     if SAVE_METRICS:

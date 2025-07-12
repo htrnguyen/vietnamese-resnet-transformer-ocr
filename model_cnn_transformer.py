@@ -100,18 +100,18 @@ class CNNEncoder(nn.Module):
     def __init__(self, d_model):
         super(CNNEncoder, self).__init__()
 
-        # Load pretrained Swin Transformer Tiny
+        # Load pretrained ConvNeXt Large (độ chính xác cao nhất)
         self.backbone = timm.create_model(
-            "swin_tiny_patch4_window7_224",
+            "convnext_large",
             pretrained=True,
             features_only=True,
             out_indices=(0, 1, 2, 3),  # Get features from all 4 stages
         )
 
-        # Swin-T feature channels: [96, 192, 384, 768]
+        # ConvNeXt-L feature channels: [128, 256, 512, 1024]
         # Feature Pyramid Network
         self.fpn = FeaturePyramidNetwork(
-            in_channels_list=[96, 192, 384, 768], out_channels=d_model
+            in_channels_list=[128, 256, 512, 1024], out_channels=d_model
         )
 
         # Final projection
@@ -123,7 +123,7 @@ class CNNEncoder(nn.Module):
         )
 
     def forward(self, x):
-        # Extract multi-scale features from Swin Transformer
+        # Extract multi-scale features from ConvNeXt Large
         features = self.backbone(x)  # Returns list of 4 feature maps
 
         # Print shapes for debugging (comment out after confirming)
