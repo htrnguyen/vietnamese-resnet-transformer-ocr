@@ -127,8 +127,8 @@ class CNNEncoder(nn.Module):
         features = self.backbone(x)  # Returns list of 4 feature maps
 
         # Print shapes for debugging (comment out after confirming)
-        # for i, feat in enumerate(features):
-        #     print(f'Stage {i}:', feat.shape)
+        for i, feat in enumerate(features):
+            print(f"Stage {i}:", feat.shape)
 
         # FPN processing
         fpn_features = self.fpn(features)
