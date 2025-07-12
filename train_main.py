@@ -15,7 +15,7 @@ from model_cnn_transformer import OCRModel
 # --- Hyperparameters ---
 BATCH_SIZE = 16  # Giảm batch size cho ConvNeXt-Large
 ACCUMULATION_STEPS = 2  # Gradient accumulation để tăng effective batch size
-EPOCHS = 20  # Tăng epochs cho convergence tốt hơn
+EPOCHS = 5
 LEARNING_RATE = 5e-5  # Giảm learning rate cho ConvNeXt-Large
 WARMUP_EPOCHS = 3  # Warmup epochs
 WEIGHT_DECAY = 1e-4  # Weight decay cho AdamW
