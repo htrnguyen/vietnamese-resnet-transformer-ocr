@@ -108,10 +108,10 @@ class CNNEncoder(nn.Module):
             out_indices=(0, 1, 2, 3),  # Get features from all 4 stages
         )
 
-        # ConvNeXt-L feature channels: [128, 256, 512, 1024]
+        # ConvNeXt-L feature channels: [192, 384, 768, 1536]
         # Feature Pyramid Network
         self.fpn = FeaturePyramidNetwork(
-            in_channels_list=[128, 256, 512, 1024], out_channels=d_model
+            in_channels_list=[192, 384, 768, 1536], out_channels=d_model
         )
 
         # Final projection
@@ -127,8 +127,8 @@ class CNNEncoder(nn.Module):
         features = self.backbone(x)  # Returns list of 4 feature maps
 
         # Print shapes for debugging (comment out after confirming)
-        for i, feat in enumerate(features):
-            print(f"Stage {i}:", feat.shape)
+        # for i, feat in enumerate(features):
+        #     print(f'Stage {i}:', feat.shape)
 
         # FPN processing
         fpn_features = self.fpn(features)
