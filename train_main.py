@@ -13,7 +13,7 @@ from dataset_polygon import OCRDataset, char2idx, idx2char
 from model_cnn_transformer import OCRModel
 
 # --- Hyperparameters ---
-BATCH_SIZE = 16  # Giảm batch size cho ConvNeXt-Large
+BATCH_SIZE = 32  # Giảm batch size cho ConvNeXt-Large
 ACCUMULATION_STEPS = 2  # Gradient accumulation để tăng effective batch size
 EPOCHS = 5
 LEARNING_RATE = 5e-5  # Giảm learning rate cho ConvNeXt-Large
