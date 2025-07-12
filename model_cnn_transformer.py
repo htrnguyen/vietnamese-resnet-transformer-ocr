@@ -1,5 +1,6 @@
 import math
 
+import timm
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -99,26 +100,18 @@ class CNNEncoder(nn.Module):
     def __init__(self, d_model):
         super(CNNEncoder, self).__init__()
 
-        # Load pretrained EfficientNet-B3
-        base_model = models.efficientnet_b3(
-            weights=models.EfficientNet_B3_Weights.IMAGENET1K_V1
+        # Load pretrained Swin Transformer Tiny
+        self.backbone = timm.create_model(
+            "swin_tiny_patch4_window7_224",
+            pretrained=True,
+            features_only=True,
+            out_indices=(0, 1, 2, 3),  # Get features from all 4 stages
         )
 
-        # EfficientNet-B3 feature extraction
-        self.stem = nn.Sequential(
-            base_model.features[0],  # stem conv
-            base_model.features[1],  # first block
-        )
-        self.block2 = base_model.features[2]
-        self.block3 = base_model.features[3]
-        self.block4 = base_model.features[4]
-        self.block5 = base_model.features[5]
-        self.block6 = base_model.features[6]
-        self.block7 = base_model.features[7]
-
-        # Feature Pyramid Network (đã sửa lại số kênh)
+        # Swin-T feature channels: [96, 192, 384, 768]
+        # Feature Pyramid Network
         self.fpn = FeaturePyramidNetwork(
-            in_channels_list=[32, 48, 96, 136], out_channels=d_model
+            in_channels_list=[96, 192, 384, 768], out_channels=d_model
         )
 
         # Final projection
@@ -130,30 +123,22 @@ class CNNEncoder(nn.Module):
         )
 
     def forward(self, x):
-        x = self.stem(x)
-        # print('stem:', x.shape)
-        x2 = self.block2(x)
-        # print('block2:', x2.shape)
-        x3 = self.block3(x2)
-        # print('block3:', x3.shape)
-        x4 = self.block4(x3)
-        # print('block4:', x4.shape)
-        x5 = self.block5(x4)
-        # print('block5:', x5.shape)
-        x6 = self.block6(x5)
-        # print('block6:', x6.shape)
-        x7 = self.block7(x6)
-        # print('block7:', x7.shape)
+        # Extract multi-scale features from Swin Transformer
+        features = self.backbone(x)  # Returns list of 4 feature maps
 
-        # Lấy feature map từ x2, x3, x4, x5
-        features = self.fpn([x2, x3, x4, x5])
+        # Print shapes for debugging (comment out after confirming)
+        # for i, feat in enumerate(features):
+        #     print(f'Stage {i}:', feat.shape)
+
+        # FPN processing
+        fpn_features = self.fpn(features)
 
         # Concatenate and project
-        B, C, H, W = features[0].shape
+        B, C, H, W = fpn_features[0].shape
         combined = torch.cat(
             [
                 F.interpolate(f, size=(H, W), mode="bilinear", align_corners=False)
-                for f in features
+                for f in fpn_features
             ],
             dim=1,
         )
